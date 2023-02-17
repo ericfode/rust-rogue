@@ -91,14 +91,13 @@ pub fn generate_rooms_and_corridors() -> (Vec<Rect>, Vec<Rect>){
     let mut rng = rltk::RandomNumberGenerator::new();
     let mut rooms: Vec<Rect> = Vec::new();
     let mut corridors: Vec<Rect> = Vec::new();
-    let mut starting_position = (0,0);
     let mut previous_room = Rect::with_size(0,0,0,0);
     // Generate the rooms
     for _i in 0..10 {
         let w = rng.range(3, 10);
         let h = rng.range(3, 10);
-        let x = rng.roll_dice(1, 80-w-1)-1;
-        let y = rng.roll_dice(1, 50-h-1)-1;
+        let x = rng.roll_dice(1, 80-w-4)-1;
+        let y = rng.roll_dice(1, 50-h-4)-1;
         let new_room = Rect::with_size(x, y, w, h);
         let mut ok = true;
         for other_room in rooms.iter() {
@@ -110,30 +109,25 @@ pub fn generate_rooms_and_corridors() -> (Vec<Rect>, Vec<Rect>){
     }
     // generate the corridors,sometimes connecting rooms
     for (i, room) in rooms.iter().enumerate() {
-        let mut min_x = previous_room.x1;
-        let mut max_x = previous_room.x2;
-        let mut min_y = previous_room.y1;
-        let mut max_y = previous_room.y2;
-        if room.x1 < min_x {min_x = room.x1}
-        if room.x2 > max_x {max_x = room.x2}
-        if room.y1 < min_y {min_y = room.y1}
-        if room.y2 > max_y {max_y = room.y2}
-        let (mut width, mut height) = (max_x-min_x, max_y-min_y);
-        if width > height {
-            width =  min(3, width); 
-        } else {
-            height =  min(3, height);
-        }
+        let (new_x, new_y) = room.center().to_tuple();
+        let (prev_x, prev_y) = previous_room.center().to_tuple();
+        let vert_corridor = Rect::with_size(prev_x, new_y, 3, i32::abs(new_y - prev_y));
+        let horiz_corridor = Rect::with_size(new_x, prev_y, i32::abs(new_x - prev_x), 3);
 
-        let corridor = Rect::with_size(min_x, min_y, width, height );
-        // check to make sure the corridor doesn't intersect any other rooms
         let mut ok = true;
         for other_room in rooms.iter() {
-            if other_room != room && other_room != &previous_room && corridor.intersect(other_room) {ok = false}
+            if other_room == room {continue}
+            if other_room == &previous_room {continue}
+            if vert_corridor.intersect(other_room) {ok = false}
+            if horiz_corridor.intersect(other_room) {ok = false}
+            // check for out of bounds of screen
+            if vert_corridor.x1 < 0 || vert_corridor.x2 > 80 || vert_corridor.y1 < 0 || vert_corridor.y2 > 50 {ok = false}
+            if horiz_corridor.x1 < 0 || horiz_corridor.x2 > 80 || horiz_corridor.y1 < 0 || horiz_corridor.y2 > 50 {ok = false}
         }
-   
         if ok {
-            corridors.push(corridor);
+            corridors.push(vert_corridor);
+            corridors.push(horiz_corridor);
+           
         }
         previous_room = *room;
     }
@@ -142,8 +136,8 @@ pub fn generate_rooms_and_corridors() -> (Vec<Rect>, Vec<Rect>){
 
 pub fn make_map_of_rooms_and_corridors(map: &mut Map, rooms: Vec<Rect>, corridors: Vec<Rect>) {
    for corridor in corridors.iter() {
-        for x in corridor.x1+1 .. corridor.x2 {
-            for y in corridor.y1+1 .. corridor.y2 {
+        for x in corridor.x1 .. corridor.x2 {
+            for y in corridor.y1 .. corridor.y2 {
                 map.tiles[xy_idx(x, y)] = TileType::Floor;
             }
         }
