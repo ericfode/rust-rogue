@@ -1,10 +1,10 @@
 use std::{cmp::{max, min}};
-
+use proptest::prelude::*;
 use crate::state::*;
-use rltk::{RGB, Rltk, Rect, LineAlg};
+use rltk::{RGB, Rltk, Rect, LineAlg, RandomNumberGenerator};
 
 
-#[derive(PartialEq, Copy, Clone)]
+#[derive(PartialEq, Copy, Clone, Debug)]
 pub enum TileType {
     Wall,
     CorWall,
@@ -15,6 +15,7 @@ pub enum TileType {
     Box
 }
 
+#[derive(Clone, Debug)]
 pub struct Map {
     pub tiles: Vec<TileType>,
     pub width: i32,
@@ -22,6 +23,57 @@ pub struct Map {
     pub revealed_tiles: Vec<bool>,
     pub visible_tiles: Vec<bool>,
     pub depth: i32,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq )]
+pub struct MapGenConfig{
+    pub max_room_width: i32,
+    pub max_room_height: i32,
+    pub min_room_width: i32,
+    pub min_room_height: i32,
+    pub min_room_x: i32,
+    pub min_room_y: i32,
+    pub max_room_x: i32,
+    pub max_room_y: i32,
+}
+prop_compose! {
+    fn arb_map_gen_config()(min_room_width in 1..=3,
+                          min_room_height in 1..=3,
+                          min_room_x in 0..=50,
+                          min_room_y in 0..=50)
+                        ( max_room_width in min_room_width+4..=100,
+                          max_room_height in min_room_height+4..=100,
+                          max_room_x in min_room_x+100..=500,
+                          max_room_y in min_room_y+100..=500,
+                          min_room_height in Just(min_room_height),
+                          min_room_width in Just(min_room_width),
+                          min_room_x in Just(min_room_x),
+                          min_room_y in Just(min_room_y)) -> MapGenConfig {
+        MapGenConfig{
+            max_room_width,
+            max_room_height,
+            min_room_width,
+            min_room_height,
+            min_room_x,
+            min_room_y,
+            max_room_x,
+            max_room_y,
+        }
+    }
+}
+
+
+pub fn default_map_config() -> MapGenConfig{
+    MapGenConfig{
+        max_room_width: 10,
+        max_room_height: 10,
+        min_room_width: 6,
+        min_room_height: 6,
+        min_room_x: 1,
+        min_room_y: 1,
+        max_room_x: 78,
+        max_room_y: 48,
+    }
 }
 
 pub fn xy_idx(x: i32, y: i32) -> usize {
@@ -86,6 +138,70 @@ pub fn make_forest(map: &mut Map, x: i32, y: i32, width: i32, height: i32, densi
         }
     }
 }
+pub fn build_room_rect(rng: &mut RandomNumberGenerator, mgc: MapGenConfig) -> Rect {
+    let w = rng.range(mgc.min_room_width, mgc.max_room_width);
+    let h = rng.range(mgc.min_room_height, mgc.max_room_height);
+    let x = rng.range(mgc.min_room_x, mgc.max_room_x-w);
+    let y = rng.range(mgc.min_room_y, mgc.max_room_y-h);
+    let new_room = Rect::with_size(x, y, w, h);
+    new_room
+}
+
+proptest! {
+    #[test]
+    fn test_build_room_rect(mgc in arb_map_gen_config()) {
+        let mut rng = rltk::RandomNumberGenerator::seeded(0);
+    
+        let new_room = build_room_rect(&mut rng, mgc);
+        prop_assert!(new_room.x1 >= mgc.min_room_x);
+        prop_assert!(new_room.x2 <= mgc.max_room_x);
+        prop_assert!(new_room.y1 >= mgc.min_room_y);
+        prop_assert!(new_room.y2 <= mgc.max_room_y);
+        prop_assert!(new_room.width() >= mgc.min_room_width);
+        prop_assert!(new_room.width() <= mgc.max_room_width);
+        prop_assert!(new_room.height() >= mgc.min_room_height);
+        prop_assert!(new_room.height() <= mgc.max_room_height);
+    }   
+}
+
+pub fn room_fits_in_map(room: &Rect, map: &Map) -> bool {
+    room.x1 > 0 && room.x2 < map.width-1 && room.y1 > 0 && room.y2 < map.height-1
+}
+
+pub fn room_does_not_overlap(room: &Rect, rooms: &Vec<Rect>) -> bool {
+    for other_room in rooms.iter() {
+        if room.intersect(other_room) {return false}
+    }
+    true
+}
+
+pub fn room_works(room: &Rect, map: &Map, rooms: &Vec<Rect>) -> bool {
+    room_fits_in_map(room, map) && room_does_not_overlap(room, rooms)
+}
+prop_compose!{
+    fn arb_rect()
+    (x1 in 0..100, 
+                y1 in 0..100)
+                (x2 in x1+1..100, 
+                 y2 in y1+1..100,
+                 x1 in Just(x1),
+                 y1 in Just(y1)) -> Rect {
+        Rect::with_size(x1, y1, x2, y2)
+    }
+}
+
+
+
+proptest!(
+    #[test]
+    fn test_room_works(mgc in arb_map_gen_config(), room in arb_rect()) {
+        let mut rng = rltk::RandomNumberGenerator::seeded(0);
+        let map = new_map(100,100);
+        let mut rooms = Vec::new();
+        let room = build_room_rect(&mut rng, mgc);
+        prop_assert!(room_works(&room, &map, &rooms));
+    }
+);
 
 pub fn generate_rooms_and_corridors() -> (Vec<Rect>, Vec<Rect>){
     let mut rng = rltk::RandomNumberGenerator::new();

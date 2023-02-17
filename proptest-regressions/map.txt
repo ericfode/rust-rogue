@@ -1,0 +1,9 @@
+# Seeds for failure cases proptest has generated in the past. It is
+# automatically read and these particular cases re-run before any
+# novel cases are generated.
+#
+# It is recommended to check this file in to source control so that
+# everyone who runs the test benefits from these saved cases.
+cc daf712ec82188d10e84f945bb30250752a73d91027fe502044c0c81edb0da26d # shrinks to mgc = MapGenConfig { max_room_width: 1, max_room_height: 1, min_room_width: 1, min_room_height: 1, min_room_x: 1, min_room_y: 1, max_room_x: 1, max_room_y: 1 }
+cc 8ab83d30249a1f8c31f10cc5ef5cb991a29ff08537ce772331495860d91efa00 # shrinks to mgc = MapGenConfig { max_room_width: 23, max_room_height: 99, min_room_width: 1, min_room_height: 1, min_room_x: 0, min_room_y: 0, max_room_x: 10, max_room_y: 10 }
+cc 5f138f92ab86bf0c9d01bffb901cf1bfe9a851acdbf76fd8802d05027c4b05ab # shrinks to mgc = MapGenConfig { max_room_width: 47, max_room_height: 5, min_room_width: 1, min_room_height: 1, min_room_x: 0, min_room_y: 0, max_room_x: 100, max_room_y: 100 }

@@ -9,3 +9,11 @@ edition = "2021"
 rltk = { version =  "0.8.7" }
 specs = "0.18.0"
 specs-derive = "0.4.1"
+proptest = "1.1.0"
+libpcp = "0.7.0"
+gcollections = "1.5.0"
+intervallum = "1.4.0"
+petgraph = "0.6.3"
+
+[dev-dependencies]
+proptest = "1.1.0"

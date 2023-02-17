@@ -3,11 +3,13 @@ use specs::prelude::*;
 use crate::components::*;
 use crate::state::*;
 use crate::map::*;
+use crate::map_pcp::*;
 
 pub mod player;
 pub mod components;
 pub mod state;
 pub mod map;
+pub mod map_pcp;
 
 
 
