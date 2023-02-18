@@ -3,8 +3,9 @@ use std::collections::HashSet;
 use rand::seq::{SliceRandom, IteratorRandom};
 #[cfg(test)]
 use proptest::{prelude::*, sample::subsequence};
-use crate::state::*;
-use rltk::{RGB, Rltk, Rect, LineAlg, RandomNumberGenerator, Point};
+use specs::{World, WorldExt, Join};
+use crate::{state::*, components::{Viewshed, Player}};
+use rltk::{RGB, Rltk, Rect, LineAlg, RandomNumberGenerator, Point, Algorithm2D, BaseMap};
 
 
 #[derive(PartialEq, Copy, Clone, Debug)]
@@ -20,6 +21,7 @@ pub struct Map {
     pub tiles: Vec<TileType>,
     pub width: i32,
     pub height: i32,
+    pub rooms: Vec<Rect>,
     pub revealed_tiles: Vec<bool>,
     pub visible_tiles: Vec<bool>,
     pub depth: i32,
@@ -99,6 +101,7 @@ pub fn new_map(width: usize, height: usize) -> Map {
     Map {
         tiles: vec![TileType::Empty; width*height],
         width: width.try_into().unwrap(),
+        rooms: Vec::new(),
         height: height.try_into().unwrap(),
         revealed_tiles: vec![false; width*height],
         visible_tiles: vec![false; width*height],
@@ -106,25 +109,37 @@ pub fn new_map(width: usize, height: usize) -> Map {
     }
 }
 
-pub fn draw_map(map: &Map, ctx: &mut Rltk){
-    let mut y = 0;
-    let mut x = 0;
+pub fn draw_map(map: &Map, ecs: &World, ctx: &mut Rltk){
+
     let (screen_width, _screen_height) = ctx.get_char_size();
-    for tile in map.tiles.iter() {
+    
+        let mut y = 0;
+        let mut x = 0;
+    for (idx, tile) in map.tiles.iter().enumerate() {
         // Render a tile depending upon the tile type
-        match tile {
-            TileType::Floor => {
-                ctx.set(x, y, RGB::from_f32(0.0, 0.5, 0.5), RGB::from_f32(0.0, 0.0, 0.0), rltk::to_cp437('.'));
-            }
-            TileType::Empty=> {
-                ctx.set(x, y, RGB::from_f32(0.0, 0.5, 0.5), RGB::from_f32(0.0, 0.0, 0.0), rltk::to_cp437(' '));
-            }
-            TileType::Wall => {
-                ctx.set(x, y, RGB::from_f32(0.0, 1.0, 0.0), RGB::from_f32(0.0, 0.0, 0.0), rltk::to_cp437('#'));
-            }
-            TileType::CorWall => {
-                ctx.set(x, y, RGB::from_f32(1.0, 1.0, 0.0), RGB::from_f32(0.0, 0.0, 0.0), rltk::to_cp437('#'));
-            }
+        if map.revealed_tiles[idx]{
+            let glyph;
+            let mut fg;
+            match tile {
+                    TileType::Floor => {
+                        glyph = rltk::to_cp437('.');
+                        fg = RGB::from_f32(0.0, 0.5, 0.5);
+                    }
+                    TileType::Empty => {
+                        glyph = rltk::to_cp437(' ');
+                        fg = RGB::from_f32(0.0, 0.5, 0.5);
+                    }
+                    TileType::Wall => {
+                        glyph = rltk::to_cp437('#');
+                        fg = RGB::from_f32(0.0, 1.0, 0.0);
+                    }
+                    TileType::CorWall => {
+                        glyph = rltk::to_cp437('#');
+                        fg = RGB::from_f32(1.0, 1.0, 0.0);
+                    }
+                }
+            if !map.visible_tiles[idx] { fg = fg.to_greyscale()}
+            ctx.set(x, y, fg, RGB::from_f32(0.0, 0.0, 0.0), glyph);
         }
         x += 1; // Move the cursor right
         if x > screen_width-1 { // If it reaches the end of the line
@@ -398,7 +413,41 @@ pub fn find_starting_position(map: &mut Map) -> Point {
 
 pub fn make_dungeon(mgc: &MapGenConfig, rng: &mut RandomNumberGenerator,map: &mut Map) {
     let (rooms, cors) = generate_rooms_and_corridors(mgc,rng);
+    map.rooms = rooms.clone();
     make_map_of_rooms_and_corridors(map, rooms, cors);
     add_doors(map);
 }
 
+impl Algorithm2D for Map {
+    fn dimensions(&self) -> Point {
+        Point::new(self.width, self.height)
+    }
+
+    fn point2d_to_index(&self, pt: Point) -> usize {
+        let bounds = self.dimensions();
+        ((pt.y * bounds.x) + pt.x)
+            .try_into()
+            .expect("Not a valid usize. Did something go negative?")
+    }
+
+    fn index_to_point2d(&self, idx: usize) -> Point {
+        let bounds = self.dimensions();
+        let w: usize = bounds
+            .x
+            .try_into()
+            .expect("Not a valid usize. Did something go negative?");
+        Point::new(idx % w, idx / w)
+    }
+
+    fn in_bounds(&self, pos: Point) -> bool {
+        let bounds = self.dimensions();
+        pos.x >= 0 && pos.x < bounds.x && pos.y >= 0 && pos.y < bounds.y
+    }
+
+}
+
+impl BaseMap for Map {
+    fn is_opaque(&self, idx: usize) -> bool {
+        self.tiles[idx] == TileType::Wall
+    }
+}
