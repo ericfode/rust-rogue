@@ -1,7 +1,10 @@
 use std::{cmp::{max, min}};
-use proptest::prelude::*;
+use std::collections::HashSet;
+use rand::seq::{SliceRandom, IteratorRandom};
+#[cfg(test)]
+use proptest::{prelude::*, sample::subsequence};
 use crate::state::*;
-use rltk::{RGB, Rltk, Rect, LineAlg, RandomNumberGenerator};
+use rltk::{RGB, Rltk, Rect, LineAlg, RandomNumberGenerator, Point};
 
 
 #[derive(PartialEq, Copy, Clone, Debug)]
@@ -10,9 +13,6 @@ pub enum TileType {
     CorWall,
     Floor,
     Empty,
-    Obstacle,
-    Tree,
-    Box
 }
 
 #[derive(Clone, Debug)]
@@ -35,7 +35,12 @@ pub struct MapGenConfig{
     pub min_room_y: i32,
     pub max_room_x: i32,
     pub max_room_y: i32,
+    pub num_rooms: usize,
+    pub corridor_size: i32,
+    pub room_max_connections: usize,
 }
+
+#[cfg(test)]
 prop_compose! {
     fn arb_map_gen_config()(min_room_width in 1..=3,
                           min_room_height in 1..=3,
@@ -48,7 +53,11 @@ prop_compose! {
                           min_room_height in Just(min_room_height),
                           min_room_width in Just(min_room_width),
                           min_room_x in Just(min_room_x),
-                          min_room_y in Just(min_room_y)) -> MapGenConfig {
+                          num_rooms in Just(10),
+                          min_room_y in Just(min_room_y),
+                          corridor_size in Just(3),
+                          room_max_connections in Just(3)
+                        ) -> MapGenConfig {
         MapGenConfig{
             max_room_width,
             max_room_height,
@@ -58,6 +67,9 @@ prop_compose! {
             min_room_y,
             max_room_x,
             max_room_y,
+            num_rooms,
+            corridor_size,
+            room_max_connections
         }
     }
 }
@@ -73,6 +85,9 @@ pub fn default_map_config() -> MapGenConfig{
         min_room_y: 1,
         max_room_x: 78,
         max_room_y: 48,
+        num_rooms: 10,
+        corridor_size: 3,
+        room_max_connections: 2
     }
 }
 
@@ -94,7 +109,7 @@ pub fn new_map(width: usize, height: usize) -> Map {
 pub fn draw_map(map: &Map, ctx: &mut Rltk){
     let mut y = 0;
     let mut x = 0;
-    let (screen_width, screen_height) = ctx.get_char_size();
+    let (screen_width, _screen_height) = ctx.get_char_size();
     for tile in map.tiles.iter() {
         // Render a tile depending upon the tile type
         match tile {
@@ -110,15 +125,6 @@ pub fn draw_map(map: &Map, ctx: &mut Rltk){
             TileType::CorWall => {
                 ctx.set(x, y, RGB::from_f32(1.0, 1.0, 0.0), RGB::from_f32(0.0, 0.0, 0.0), rltk::to_cp437('#'));
             }
-            TileType::Obstacle => {
-                ctx.set(x, y, RGB::from_f32(0.0, 1.0, 0.0), RGB::from_f32(0.0, 0.0, 0.0), rltk::to_cp437('░'));
-            }
-            TileType::Tree => {
-                ctx.set(x, y, RGB::from_f32(0.0, 1.0, 0.0), RGB::from_f32(0.0, 0.0, 0.0), rltk::to_cp437('♣'));
-            }
-            TileType::Box => {
-                ctx.set(x, y, RGB::from_f32(0.0, 1.0, 0.0), RGB::from_f32(0.0, 0.0, 0.0), rltk::to_cp437('▓'));
-            }
         }
         x += 1; // Move the cursor right
         if x > screen_width-1 { // If it reaches the end of the line
@@ -128,17 +134,8 @@ pub fn draw_map(map: &Map, ctx: &mut Rltk){
     }
 }
 
-pub fn make_forest(map: &mut Map, x: i32, y: i32, width: i32, height: i32, density: i32) {
-    let mut rng = rltk::RandomNumberGenerator::new();
-    for i in x..x+width {
-        for j in y..y+height {
-            if rng.roll_dice(1, density) == 1{
-                map.tiles[xy_idx(i, j)] = TileType::Tree;
-            }
-        }
-    }
-}
-pub fn build_room_rect(rng: &mut RandomNumberGenerator, mgc: MapGenConfig) -> Rect {
+
+pub fn build_room_rect(rng: &mut RandomNumberGenerator, mgc: &MapGenConfig) -> Rect {
     let w = rng.range(mgc.min_room_width, mgc.max_room_width);
     let h = rng.range(mgc.min_room_height, mgc.max_room_height);
     let x = rng.range(mgc.min_room_x, mgc.max_room_x-w);
@@ -147,12 +144,13 @@ pub fn build_room_rect(rng: &mut RandomNumberGenerator, mgc: MapGenConfig) -> Re
     new_room
 }
 
+#[cfg(test)]
 proptest! {
     #[test]
     fn test_build_room_rect(mgc in arb_map_gen_config()) {
         let mut rng = rltk::RandomNumberGenerator::seeded(0);
     
-        let new_room = build_room_rect(&mut rng, mgc);
+        let new_room = build_room_rect(&mut rng, &mgc);
         prop_assert!(new_room.x1 >= mgc.min_room_x);
         prop_assert!(new_room.x2 <= mgc.max_room_x);
         prop_assert!(new_room.y1 >= mgc.min_room_y);
@@ -164,132 +162,243 @@ proptest! {
     }   
 }
 
-pub fn room_fits_in_map(room: &Rect, map: &Map) -> bool {
-    room.x1 > 0 && room.x2 < map.width-1 && room.y1 > 0 && room.y2 < map.height-1
+pub fn room_fits_in_map(room: &Rect, mgc: &MapGenConfig) -> bool {
+    room.x1 > 0 && room.x2 < mgc.max_room_x && room.y1 > 0 && room.y2 < mgc.max_room_y
 }
 
 pub fn room_does_not_overlap(room: &Rect, rooms: &Vec<Rect>) -> bool {
     for other_room in rooms.iter() {
+        if room == other_room {continue}
         if room.intersect(other_room) {return false}
     }
     true
 }
 
-pub fn room_works(room: &Rect, map: &Map, rooms: &Vec<Rect>) -> bool {
-    room_fits_in_map(room, map) && room_does_not_overlap(room, rooms)
+pub fn room_works(room: &Rect, mgc: &MapGenConfig, rooms: &Vec<Rect>) -> bool {
+    room_fits_in_map(room, mgc) && room_does_not_overlap(room, rooms)
 }
-prop_compose!{
-    fn arb_rect()
-    (x1 in 0..100, 
-                y1 in 0..100)
-                (x2 in x1+1..100, 
-                 y2 in y1+1..100,
-                 x1 in Just(x1),
-                 y1 in Just(y1)) -> Rect {
-        Rect::with_size(x1, y1, x2, y2)
+
+
+pub fn generate_some_rooms(rng: &mut RandomNumberGenerator, mgc: &MapGenConfig) -> Vec<Rect> {
+    let mut rooms: Vec<Rect> = vec![];
+    while rooms.len() < mgc.num_rooms.try_into().unwrap() {
+        let new_room = build_room_rect(rng, mgc);
+        if room_works(&new_room, mgc, &rooms) {
+            rooms.push(new_room);
+        }
     }
+    rooms
 }
 
+#[derive(Clone, Debug )]
+struct RoomCase{
+    rooms: Vec<Rect>,
+    mgc: MapGenConfig,
+}
 
+#[cfg(test)]
+fn arb_rooms(mgc: &MapGenConfig, rng: &mut rltk::RandomNumberGenerator) 
+        -> impl Strategy<Value = RoomCase> {
+        let rooms = subsequence( generate_some_rooms(rng, mgc),
+                                                    mgc.num_rooms);
 
-proptest!(
+        let new_mgc = mgc.clone();
+        rooms.prop_flat_map(move |rooms|{
+            Just(RoomCase {rooms, mgc:new_mgc})
+        } )
+}
+
+#[cfg(test)]
+// Test generate_some_rooms
+proptest! {
     #[test]
-    fn test_room_works(mgc in arb_map_gen_config(), room in arb_rect()) {
-        let mut rng = rltk::RandomNumberGenerator::seeded(0);
-        let map = new_map(100,100);
-        let mut rooms = Vec::new();
-        let room = build_room_rect(&mut rng, mgc);
-        prop_assert!(room_works(&room, &map, &rooms));
+    fn test_generate_some_rooms(room_case in arb_rooms(&default_map_config(), &mut rltk::RandomNumberGenerator::seeded(0))) {
+        prop_assert!(room_case.rooms.len() == room_case.mgc.num_rooms.try_into().unwrap());
+        for room in room_case.rooms.iter() {
+            prop_assert!(room_fits_in_map(room, &room_case.mgc));
+            prop_assert!(room_does_not_overlap(room, &room_case.rooms));
+        }
     }
-);
+}
 
-pub fn generate_rooms_and_corridors() -> (Vec<Rect>, Vec<Rect>){
-    let mut rng = rltk::RandomNumberGenerator::new();
-    let mut rooms: Vec<Rect> = Vec::new();
-    let mut corridors: Vec<Rect> = Vec::new();
-    let mut previous_room = Rect::with_size(0,0,0,0);
-    // Generate the rooms
-    for _i in 0..10 {
-        let w = rng.range(3, 10);
-        let h = rng.range(3, 10);
-        let x = rng.roll_dice(1, 80-w-4)-1;
-        let y = rng.roll_dice(1, 50-h-4)-1;
-        let new_room = Rect::with_size(x, y, w, h);
-        let mut ok = true;
-        for other_room in rooms.iter() {
-            if new_room.intersect(other_room) {ok = false}
-        }
-        if ok {
-            rooms.push(new_room)
+pub fn order_points(p1: Point, p2: Point) -> (Point, Point) {
+    // If p1 is above p2, p1 is the top most
+    if p1.y < p2.y {
+        (p1,p2)
+    // if p1 is below p2, p2 is the top most
+    } else if p1.y > p2.y {
+        (p2,p1)
+    // if p1 and p2 are on the same y, then the left most is origin
+    } else {
+        if p1.x < p2.x {
+            (p1,p2)
+        } else {
+            // This will also get returned if they are equal
+            (p2,p1)
         }
     }
+}
+#[cfg(test)]
+prop_compose! {
+    fn arb_point()(x in 0..100, y in 0..100) -> Point {
+        Point::new(x, y)
+    }
+}
+
+#[cfg(test)]
+proptest! {
+    #[test]
+    fn test_order_points(p1 in arb_point(), p2 in arb_point()) {
+        let (top_most, other) = order_points(p1, p2);
+        prop_assert!(top_most==p1 && other ==p2 || top_most==p2 && other ==p1);
+        prop_assert!(top_most.y <= other.y || top_most.y == other.y && top_most.x <= other.x);
+        }
+    }
+
+pub fn cononical_rect(p1: Point, p2: Point) -> Rect {
+   match p1.x > p2.x {
+       true => Rect::with_exact(p2.x, p1.y,p1.x,p2.y),
+       false => Rect::with_exact(p1.x, p1.y, p2.x, p2.y),
+   }
+} 
+
+#[cfg(test)]
+proptest! {
+    #[test]
+    fn test_conical_rect(p1 in arb_point(), p2 in arb_point()) {
+        let (p1p, p2p) = order_points(p1, p2);
+        let r = cononical_rect(p1p, p2p);
+        prop_assert!(r.x1 <= r.x2);
+        prop_assert!(r.y1 <= r.y2);
+    }
+}
+pub fn all_edges(paths: &Rect, mpg: &MapGenConfig) -> Vec<Rect>{
+    vec![Rect::with_size(paths.x1, paths.y1, paths.width()+mpg.corridor_size, mpg.corridor_size),
+        Rect::with_size(paths.x2, paths.y1, mpg.corridor_size, paths.height()+mpg.corridor_size),
+        Rect::with_size(paths.x1, paths.y2, paths.width()+mpg.corridor_size, mpg.corridor_size),
+        Rect::with_size(paths.x1, paths.y1, mpg.corridor_size, paths.height()+mpg.corridor_size) 
+    ]
+}
+
+pub fn fw_paths(path_vec: Vec<Rect>) -> Vec<Vec<Rect>>{
+    vec![vec![path_vec[0], path_vec[1]], vec![path_vec[3], path_vec[2]]]
+}
+
+pub fn bw_paths(path_vec: Vec<Rect>) -> Vec<Vec<Rect>>{
+    vec![vec![path_vec[1], path_vec[2]], vec![path_vec[0], path_vec[3]]]
+}
+
+pub fn connect_two_rooms(mpg: &MapGenConfig, rng: &mut RandomNumberGenerator, room1: &Rect, room2: &Rect) -> Vec<Rect>{
+    let (x1, y1) = room1.center().to_tuple();
+    let (x2, y2) = room2.center().to_tuple();
+    let (p1, p2) = order_points(room1.center(), room2.center());
+    let paths = cononical_rect(p1,p2);
+    let edges = all_edges(&paths, mpg);
+    // Start at the first corner of the rectangle then pick an edge to move along
+    // Then build the horizontal and vertical corridors in either order
+    match p1.x > p2.x {
+        true => {
+          bw_paths(edges)
+        }
+        false => {
+          fw_paths(edges)
+        }
+    }.iter()
+        .filter(|rects| rects.iter().all(|r| room_fits_in_map(r, mpg)))
+        .choose(rng.get_rng())
+        .unwrap_or(&vec![])
+        .to_vec()
+}
+
+pub fn connect_some_rooms(mgc: &MapGenConfig, rng: &mut RandomNumberGenerator, origin: &Rect ,rooms: &Vec<Rect>) -> Vec<Rect> {
+    let connects = rng.range(1,mgc.room_max_connections);
+    let mut shuffled = rooms.clone();
+    shuffled.shuffle(rng.get_rng());
+    shuffled.iter()
+        .filter(|r| *r != origin)
+        .take(connects)
+        .map(|target| {
+           Vec::from(connect_two_rooms(mgc, rng, origin, target))
+        })
+        .flatten()
+        .filter(|r| room_fits_in_map(r, mgc))
+        .collect()
+}
+
+pub fn generate_rooms_and_corridors(mgc: &MapGenConfig, rng: &mut RandomNumberGenerator) -> (Vec<Rect>, Vec<Rect>){
+    let rooms  = generate_some_rooms(rng, mgc);
     // generate the corridors,sometimes connecting rooms
-    for (i, room) in rooms.iter().enumerate() {
-        let (new_x, new_y) = room.center().to_tuple();
-        let (prev_x, prev_y) = previous_room.center().to_tuple();
-        let vert_corridor = Rect::with_size(prev_x, new_y, 3, i32::abs(new_y - prev_y));
-        let horiz_corridor = Rect::with_size(new_x, prev_y, i32::abs(new_x - prev_x), 3);
-
-        let mut ok = true;
-        for other_room in rooms.iter() {
-            if other_room == room {continue}
-            if other_room == &previous_room {continue}
-            if vert_corridor.intersect(other_room) {ok = false}
-            if horiz_corridor.intersect(other_room) {ok = false}
-            // check for out of bounds of screen
-            if vert_corridor.x1 < 0 || vert_corridor.x2 > 80 || vert_corridor.y1 < 0 || vert_corridor.y2 > 50 {ok = false}
-            if horiz_corridor.x1 < 0 || horiz_corridor.x2 > 80 || horiz_corridor.y1 < 0 || horiz_corridor.y2 > 50 {ok = false}
-        }
-        if ok {
-            corridors.push(vert_corridor);
-            corridors.push(horiz_corridor);
-           
-        }
-        previous_room = *room;
-    }
+    let corridors =  rooms.iter()
+        .map(|room|{
+            connect_some_rooms(mgc, rng, room, &rooms)
+        })
+        .flatten()
+        .collect();
     (rooms, corridors)
 }
 
-pub fn make_map_of_rooms_and_corridors(map: &mut Map, rooms: Vec<Rect>, corridors: Vec<Rect>) {
-   for corridor in corridors.iter() {
-        for x in corridor.x1 .. corridor.x2 {
-            for y in corridor.y1 .. corridor.y2 {
-                map.tiles[xy_idx(x, y)] = TileType::Floor;
+fn add_rect_to_map(rect: &Rect, map: &mut Map, floorType: TileType, wallType: TileType) {
+    rect.point_set().iter().for_each(|p|{
+        // Build the floors where the point is not on and edge
+        // and walls where it is by using a match
+        match (p.x, p.y) {
+            (x, y) if x == rect.x1 || x == rect.x2-1 || y == rect.y1 || y == rect.y2-1 => {
+
+                map.tiles[xy_idx(p.x, p.y)] = wallType;
+            },
+            _ => {
+                map.tiles[xy_idx(p.x, p.y)] = floorType;
             }
-        }
-        // build the horizantal walls 
-        for x in corridor.x1 .. corridor.x2+1 {
-            map.tiles[xy_idx(x, corridor.y1)] = TileType::CorWall;
-            map.tiles[xy_idx(x, corridor.y2)] = TileType::CorWall;
-        }
-        // build the vertical walls
-        for y in corridor.y1 .. corridor.y2+1 {
-            map.tiles[xy_idx(corridor.x1, y)] = TileType::CorWall;
-            map.tiles[xy_idx(corridor.x2, y)] = TileType::CorWall;
-        }
-    }
-    for room in rooms.iter() {
-        // Build the floors
-        for x in room.x1+1 .. room.x2 {
-            for y in room.y1+1 .. room.y2 {
-                map.tiles[xy_idx(x, y)] = TileType::Floor;
-            }
-        }
-        // build the horizantal walls
-        for x in room.x1 .. room.x2+1 {
-            map.tiles[xy_idx(x, room.y1)] = TileType::Wall;
-            map.tiles[xy_idx(x, room.y2)] = TileType::Wall;
-        }
-        // build the vertical walls
-        for y in room.y1 .. room.y2+1 {
-            map.tiles[xy_idx(room.x1, y)] = TileType::Wall;
-            map.tiles[xy_idx(room.x2, y)] = TileType::Wall;
-        }
-    }
- 
+       }});
 }
 
-pub fn make_dungeon(map: &mut Map) {
-    let (rooms, cors) = generate_rooms_and_corridors();
-    make_map_of_rooms_and_corridors(map, rooms, cors)
+pub fn make_map_of_rooms_and_corridors(map: &mut Map, rooms: Vec<Rect>, corridors: Vec<Rect>) {
+   corridors.iter().for_each(|corridor| {
+        add_rect_to_map(corridor, map, TileType::Floor, TileType::Wall);
+   });
+   rooms.iter().for_each(|room| {
+        add_rect_to_map(room, map, TileType::Floor, TileType::Wall);
+   });
 }
+
+pub fn add_doors(map: &mut Map) {
+    // For each row (starting one in from the edge)
+    for y in 1..map.height-1 {
+        // For each slot in the row (starting one in from the edge )
+        for x in 1..map.width-1 {
+            // If the tile is a wall
+                // If the tile to the left and right are floors
+                // Self, Left, Right, Up, Down
+            match(map.tiles[xy_idx(x, y)],map.tiles[xy_idx(x-1, y)], map.tiles[xy_idx(x+1, y)], map.tiles[xy_idx(x, y-1)],map.tiles[xy_idx(x, y+1)]) {
+                (TileType::Wall,TileType::Floor, TileType::Floor, TileType::Wall, TileType::Wall) => {
+                    // Make it a door
+                    map.tiles[xy_idx(x, y)] = TileType::Floor;
+                }
+                (TileType::Wall,TileType::Wall, TileType::Wall, TileType::Floor, TileType::Floor) => {
+                    // Make it a door
+                    map.tiles[xy_idx(x, y)] = TileType::Floor;
+                }
+                _ => {}
+            }
+        }
+    }
+}
+
+pub fn find_starting_position(map: &mut Map) -> Point {
+    let mut starting_position = Point::zero();
+    for (i, tile) in map.tiles.iter().enumerate() {
+        if *tile == TileType::Floor {
+            // This is werid becuase of how the array is packed
+            starting_position = Point::new(i as i32 % map.width, i as i32 / map.width);
+            break;
+        }
+    }
+    starting_position
+}
+
+pub fn make_dungeon(mgc: &MapGenConfig, rng: &mut RandomNumberGenerator,map: &mut Map) {
+    let (rooms, cors) = generate_rooms_and_corridors(mgc,rng);
+    make_map_of_rooms_and_corridors(map, rooms, cors);
+    add_doors(map);
+}
+

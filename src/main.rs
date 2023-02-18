@@ -3,13 +3,11 @@ use specs::prelude::*;
 use crate::components::*;
 use crate::state::*;
 use crate::map::*;
-use crate::map_pcp::*;
 
 pub mod player;
 pub mod components;
 pub mod state;
 pub mod map;
-pub mod map_pcp;
 
 
 
@@ -28,9 +26,12 @@ fn main() -> rltk::BError{
     let (screen_width, screen_height) = context.get_char_size();
     let (sx, sy) = (screen_width.try_into().unwrap(),screen_height.try_into().unwrap());
     let mut map = new_map(sx, sy);
-    make_dungeon(&mut map);
+    let mgc = default_map_config();
+    let mut rng = rltk::RandomNumberGenerator::new();
+    make_dungeon(&mgc, &mut rng, &mut map);
+    let start = find_starting_position(&mut map);
     gs.ecs.insert(map);
 
-    create_player(&mut gs, 0, 0);
+    create_player(&mut gs, start.x, start.y);
     rltk::main_loop(context, gs)
 }
