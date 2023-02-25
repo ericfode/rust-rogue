@@ -1,12 +1,13 @@
 use rltk::{RandomNumberGenerator, RGB};
+use rouge::FromSpec;
 
 use crate::{
     components::{Name, Position, Renderable, CombatStats},
     map::Map,
-    state::{create_monster, State},
+    state::{create_monster, State, create_spawner},
 };
 
-#[derive(Clone, Debug, FromSpec)]
+#[derive(Clone, Debug)]
 pub struct MonsterSpec {
     glyph: rltk::FontCharType,
     name: String,
@@ -16,7 +17,7 @@ pub struct MonsterSpec {
     combat_stats: Option<CombatStats>,
 }
 
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, FromSpec)]
 pub struct SpawnerSpec {
     glyph: rltk::FontCharType,
     name: String,
@@ -59,12 +60,7 @@ impl From<MonsterSpec> for Name {
 
 pub trait MonsterGenerator<T> {
     fn gen_one(&self, rng: &mut RandomNumberGenerator) -> T;
-    fn gen_one_with_pos(&self, rng: &mut RandomNumberGenerator, x: i32, y: i32) -> T {
-        let mut spec = self.gen_one(rng);
-        spec.point.x = x;
-        spec.point.y = y;
-        spec
-    }
+    fn gen_one_with_pos(&self, rng: &mut RandomNumberGenerator, x: i32, y: i32) -> T ;
 }
 
 fn default_monsters() -> Vec<MonsterSpec> {
@@ -99,8 +95,8 @@ fn default_monsters() -> Vec<MonsterSpec> {
 fn default_spawners() -> Vec<SpawnerSpec>{
     vec![
     SpawnerSpec {
-        glyph: rltk::to_cp437('❓'),
-        name: "Orc Spawnling".to_string(),
+        glyph: rltk::to_cp437('P'),
+        name: "Orc Spawner".to_string(),
         fg: RGB::named(rltk::RED),
         bg: RGB::named(rltk::BLACK),
         point: rltk::Point { x: 0, y: 0 },
@@ -116,7 +112,7 @@ fn default_spawners() -> Vec<SpawnerSpec>{
             // I thought s was the right character, but it's not
             // instead this is a list of ideas:
             // simley face emoji (😀)
-            glyph: rltk::to_cp437('❓'),
+            glyph: rltk::to_cp437('p'),
             name: "Orc Spawnling".to_string(),
             fg: RGB::named(rltk::RED),
             bg: RGB::named(rltk::BLACK),
@@ -127,7 +123,38 @@ fn default_spawners() -> Vec<SpawnerSpec>{
                 defense: 1,
                 power: 1}),
         }
-    }]
+    },
+       SpawnerSpec {
+        glyph: rltk::to_cp437('C'),
+        name: "Cow Spawner".to_string(),
+        fg: RGB::named(rltk::RED),
+        bg: RGB::named(rltk::BLACK),
+        point: rltk::Point { x: 0, y: 0 },
+        combat_stats: CombatStats {
+            max_hp: 2,
+            hp: 2,
+            defense: 1,
+            power: 1},
+        spawn_max: 5,
+        spawn_per: 1,
+        spawn_spec:
+        MonsterSpec {
+            // I thought s was the right character, but it's not
+            // instead this is a list of ideas:
+            // simley face emoji ()
+            glyph: rltk::to_cp437('c'),
+            name: "Cow Spawnling".to_string(),
+            fg: RGB::named(rltk::RED),
+            bg: RGB::named(rltk::BLACK),
+            point: rltk::Point { x: 0, y: 0 },
+            combat_stats: Some(CombatStats {
+                max_hp: 2,
+                hp: 2,
+                defense: 1,
+                power: 1}),
+        }
+    }  
+    ]
 }
 
 pub struct DefaultMonsterGenerator;
@@ -137,6 +164,12 @@ impl MonsterGenerator<MonsterSpec> for DefaultMonsterGenerator {
         let len = (default_monsters().len() - 1) as i32;
         let i = rng.roll_dice(1, len);
         default_monsters()[i as usize].clone()
+    }
+    fn gen_one_with_pos(&self, rng: &mut RandomNumberGenerator, x: i32, y: i32) -> MonsterSpec {
+        let mut spec = self.gen_one(rng);
+        spec.point.x = x;
+        spec.point.y = y;
+        spec
     }
 }
 
@@ -148,6 +181,12 @@ impl MonsterGenerator<SpawnerSpec> for DefaultSpawnerGenerator {
         let i = rng.roll_dice(1, len);
         default_spawners()[i as usize].clone()
     }
+    fn gen_one_with_pos(&self, rng: &mut RandomNumberGenerator, x: i32, y: i32) -> SpawnerSpec {
+        let mut spec = self.gen_one(rng);
+        spec.point.x = x;
+        spec.point.y = y;
+        spec
+    }
 }
 
 pub fn generate_monsters(gs: &mut State, rng: &mut RandomNumberGenerator, map: &Map) {
@@ -157,10 +196,11 @@ pub fn generate_monsters(gs: &mut State, rng: &mut RandomNumberGenerator, map: &
     for room in map.rooms.iter().skip(1) {
         let (x, y) = room.center().to_tuple();
         create_monster(gs, gen.gen_one_with_pos(rng, x, y));
+        create_spawner(gs, spawn_gen.gen_one_with_pos(rng, x-1, y-1));
         // one out of 5 rooms add a spawner
-        if rng.roll_dice(1, 5) == 1 {
-            // All rooms are bigger thin 3x3 so this will be fine :P
-            spawn_gen.gen_one_with_pos(rng, x-1, y-1);
-        }
+        // if rng.roll_dice(1, 5) == 1 {
+        //     // All rooms are bigger thin 3x3 so this will be fine :P
+        //     spawn_gen.gen_one_with_pos(rng, x-1, y-1);
+        // }
     }
 }

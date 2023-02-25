@@ -26,7 +26,9 @@ pub struct Viewshed {
     pub dirty: bool,
 }
 #[derive(Component, Debug)]
-pub struct Monster {}
+pub struct Monster {
+    pub mobile: bool,
+}
 #[derive(Component, Debug)]
 pub struct Player {}
 

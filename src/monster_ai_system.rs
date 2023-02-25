@@ -27,7 +27,7 @@ impl<'a> System<'a> for MonsterAI {
             runstate,
             player,
             mut map,
-            monster,
+            monsters,
             mut viewshed,
             mut pos,
             name,
@@ -39,8 +39,8 @@ impl<'a> System<'a> for MonsterAI {
             return;
         }
 
-        for (ent, _monster, mut viewshed, name, mut pos) in
-            (&entities, &monster, &mut viewshed, &name, &mut pos).join()
+        for (ent, monster, mut viewshed, name, mut pos) in
+            (&entities, &monsters, &mut viewshed, &name, &mut pos).join()
         {
             if viewshed.visible_tiles.contains(&*player_pos) {
                 console::log(&format!("{} leers at you", name.name));
@@ -53,6 +53,8 @@ impl<'a> System<'a> for MonsterAI {
                         .insert(ent, WantsToMelee { target: *player })
                         .expect("Unagle to insert attack");
                 }
+
+                if !monster.mobile  { continue;}
 
                 let path = rltk::a_star_search(
                     xy_idx(pos.point.x, pos.point.y),

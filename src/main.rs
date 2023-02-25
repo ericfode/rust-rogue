@@ -3,7 +3,7 @@ use crate::state::{RunState, State, create_player};
 use components::{register_all_components};
 use gamelog::GameLog;
 use monster::generate_monsters;
-use rltk::{RltkBuilder};
+use rltk::{RltkBuilder, RandomNumberGenerator};
 use specs::prelude::*;
 pub mod components;
 pub mod gamelog;
@@ -26,7 +26,7 @@ fn main() -> rltk::BError {
     context.with_post_scanlines(true);
     let mut gs = State { ecs: World::new()};
     register_all_components(&mut gs.ecs);
-    gs.ecs.insert(rtlk::RandomNumberGenerator::new());
+    gs.ecs.insert(RandomNumberGenerator::new());
     gs.ecs.insert(RunState::PreRun);
     gs.ecs.insert(GameLog{
         entries: vec!["Welcome to your nightmare".to_string()]

@@ -24,7 +24,7 @@ pub fn impl_spec_macro(ast: &syn::DeriveInput) -> TokenStream {
     
         impl From<#name> for Option<CombatStats> {
             fn from(val: #name) -> Option<CombatStats> {
-                val.combat_stats
+               Some(val.combat_stats)
             }
         }
     

@@ -115,7 +115,7 @@ pub fn create_spawner(state: &mut State, ss:SpawnerSpec) {
             dirty: true,
         })
         .with(Name::from(ss.clone()))
-        .with(Monster {})
+        .with(Monster {mobile: false})
         .maybe_with(Option::<CombatStats>::from(ss.clone()))
         .with(Renderable::from(ss.clone()))
         .build();
@@ -133,7 +133,7 @@ pub fn create_monster(state: &mut State, ms: MonsterSpec) {
             dirty: true,
         })
         .with(Name::from(ms.clone()))
-        .with(Monster {})
+        .with(Monster {mobile: true})
         .maybe_with(Option::<CombatStats>::from(ms.clone()))
         .with(Renderable::from(ms.clone()))
         .build();
