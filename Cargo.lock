@@ -1560,10 +1560,12 @@ name = "rouge"
 version = "0.1.0"
 dependencies = [
  "proptest",
+ "quote",
  "rand",
  "rltk",
  "specs",
  "specs-derive",
+ "syn",
 ]
 
 [[package]]

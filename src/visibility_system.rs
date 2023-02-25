@@ -1,7 +1,7 @@
 use specs::prelude::*;
 use crate::components::{Viewshed, Position, Player};
 use crate::map::{Map, xy_idx};
-use rltk::{field_of_view, Point};
+use rltk::{field_of_view};
 
 pub struct VisibilitySystem {}
 
@@ -26,7 +26,7 @@ impl<'a> System<'a> for VisibilitySystem {
             viewshed.visible_tiles.retain(|p| p.x >= 0 && p.x < map.width && p.y >= 0 && p.y < map.height);
 
             let p : Option<&Player> = player.get(ent);
-            if let Some(p) = p {
+            if let Some(_p) = p {
                 for t in map.visible_tiles.iter_mut() { *t= false;}
                 for vis in viewshed.visible_tiles.iter() {
                     let idx = xy_idx(vis.x, vis.y);
